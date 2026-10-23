@@ -11,7 +11,7 @@
 
 **OMNI-Audit v2.0** (**O**rthographic & **M**arginalia **N**ormalization **I**ntegrity Auditor) is an open-source, research-grade software application engineered to evaluate digitized manuscript collections, HTR outputs (Transkribus, eScriptorium), and crowdsourced transcription datasets for:
 
-1. **Orthographic Normalization & Drift (Weighted ONI Metric):** Evaluates character-level drift using a **weighted Levenshtein matrix** that discounts historical variants ($u/v$, $i/j$, $ſ/s$, brevigraphs) vs arbitrary character corruption noise.
+1. **Orthographic Normalization (ONI Metric):** Classifies every altered word as a spelling modernisation (rule-based or probable) or as another change (recognition/transcription error), using historical folding rules ($u/v$, $i/j$, $ſ/s$, $y/i$, thorn, *ye/the*, *&/and*, Roman numerals); a **weighted Levenshtein distance** that discounts historical variants is reported alongside the standard Character Error Rate.
 2. **Marginalia & Spatial Layout Erasure (MPR & Content Retention Ratio):** Parses multiple TEI-XML schemas (`<add place="margin">`, `<note place="margin">`, `<seg>`, `<zone type="margin">`) and verifies whether the actual *text content* of marginalia was preserved in output streams.
 3. **Statistical Line-Level Diagnostics:** Computes CER mean, median, standard deviation ($\sigma$), min, and max across manuscript lines.
 4. **Configurable Multi-Factor Risk Assessment:** Assigns a 4-tier compliance score (**Low / Moderate / High / Critical Risk**) with customized recommendations.
@@ -65,13 +65,15 @@ python omni_auditor.py \
   "tool": "OMNI-Audit: Orthographic & Marginalia Normalization Integrity Auditor",
   "version": "2.0.0",
   "metrics": {
-    "orthographic_normalization_index_oni": 0.402,
+    "orthographic_normalization_index_oni": 0.4091,
     "character_error_rate_cer": 0.1517,
     "raw_edit_distance": 27.0,
     "weighted_edit_distance": 16.25,
     "oni_calculation_details": {
-      "method": "orthographic_variance_ratio",
-      "orthographic_drift_delta": 10.75
+      "method": "token_level_normalisation_ratio",
+      "orthographic_rule_based": 8,
+      "orthographic_probable": 1,
+      "other_changes": 13
     }
   },
   "line_statistics": {

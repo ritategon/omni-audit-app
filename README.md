@@ -28,7 +28,7 @@ An interactive web dashboard for running OMNI-Audit directly in your browser is 
 ## Application Files
 
 * **[omni_auditor.py](omni_auditor.py):** Core diagnostic engine & command-line tool.
-* **[test_omni_auditor.py](test_omni_auditor.py):** Automated unit test suite (9 tests).
+* **[test_omni_auditor.py](test_omni_auditor.py):** Automated unit test suite (13 tests).
 * **[gui_app.py](gui_app.py):** Native desktop dashboard (Tkinter, no external dependencies) for offline use on sensitive or unpublished manuscripts; no data leaves the local machine.
 * **[streamlit_app.py](streamlit_app.py):** Interactive web dashboard (Streamlit) powering the live demo.
 * **[PROTOTYPE_GUIDE.md](PROTOTYPE_GUIDE.md):** User & testing guide.

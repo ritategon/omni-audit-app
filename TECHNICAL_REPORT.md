@@ -27,14 +27,23 @@ $$Cost(c_1, c_2) = \begin{cases}
 1.00 & \text{if arbitrary substitution / noise}
 \end{cases}$$
 
-### B. Self-Calibrated Orthographic Normalization Index ($\text{ONI}$)
-Rather than assuming a modernized text is the upper limit of error, OMNI-Audit computes $\text{ONI}$ by isolating orthographic variance:
+### B. Orthographic Normalization Index ($\text{ONI}$)
 
-$$\text{ONI} = \frac{D_{\text{unweighted}}(T_{\text{dip}}, T_{\text{dat}}) - D_{\text{weighted}}(T_{\text{dip}}, T_{\text{dat}})}{\max(D_{\text{unweighted}}(T_{\text{dip}}, T_{\text{dat}}), 1.0)}$$
+**Method 1 — Self-calibrated, token-level (default).** The diplomatic and datafied texts are split into words and aligned. Each word is first mapped to a *folded* canonical form in which historical variants coincide: long s and f→s, u/v, i/j, y/i, thorn and eth→th, æ/œ, abbreviations (*ye*/*the*, *yt*/*that*, *wt*/*with*, *&*/*and*), Roman numerals→Arabic, doubled consonants, final silent *-e* and capitalisation. Each altered word is then classified as:
 
-* **Interpretation:**
-  * $\text{ONI} = 0.0$: All character edits represent random OCR noise or identical matching.
-  * $\text{ONI} > 0.40$: High proportion of character edits are specifically modernizing orthographic conversions.
+* **rule-based normalisation:** identical to its counterpart after folding (e.g. *fcripture → scripture*, *ye → the*, *V → 5*);
+* **probable normalisation:** after folding, differs from its counterpart only by added or removed vowels (e.g. *heyres → heirs*, *wrayten → written*);
+* **other change:** any other alteration, typically a recognition or transcription error (e.g. *name → narne*).
+
+Omitted and inserted words are counted separately as content loss.
+
+$$\text{ONI} = \frac{N_{\text{rule-based}} + N_{\text{probable}}}{N_{\text{rule-based}} + N_{\text{probable}} + N_{\text{other}}}$$
+
+* **Interpretation:** $\text{ONI} = 0.0$: no altered word is a spelling modernisation (only errors, or no changes); $\text{ONI} = 1.0$: every altered word is a spelling modernisation. The classification is heuristic and should be read together with the list of classified examples in the report.
+
+**Method 2 — Dual reference (when a modernised reference text is supplied).** ONI measures how far the datafied text has converged from the diplomatic text toward the modernised reference.
+
+The weighted Levenshtein distance (section A) is reported alongside the standard (unweighted) distance used for the Character Error Rate.
 
 ### C. Marginalia Preservation & Content Retention Ratio ($\text{MPR}$)
 The parser evaluates both tag retention and textual content presence across multiple TEI-P5 elements (`<add place="margin|left|right|above">`, `<note place="margin">`, `<zone type="margin">`):
@@ -50,4 +59,4 @@ $$\text{Content Retention Ratio} = \left( \frac{\text{Count}(\text{Marginalia Te
 1. **Space-Efficient $O(\min(M,N))$ Levenshtein Engine:** Memory-optimized DP implementation with zero recursion.
 2. **Text Normalization Pre-Processing:** Collapses whitespace and line breaks before comparison to prevent formatting noise from inflating distances.
 3. **Multi-Factor Risk Assessment:** Evaluates risk across orthography, marginalia presence, and content retention with configurable thresholds.
-4. **Comprehensive Unit Test Suite:** Includes `test_omni_auditor.py` covering all core metrics, edge cases, and XML schemas.
+4. **Unit Test Suite:** `test_omni_auditor.py` (13 tests) covers the edit distances, both ONI methods (including recognition errors and omissions), TEI parsing and risk evaluation.

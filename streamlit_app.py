@@ -138,7 +138,28 @@ if run_audit or (dip_text and dat_text):
         st.info(f"👉 {rec}")
 
     # Tabs for Detailed Diagnostics
-    tab_report, tab_xml, tab_lines = st.tabs(["📊 Full JSON Report", "🏛️ TEI-XML Markup Audit", "📏 Line Statistics"])
+    tab_spelling, tab_report, tab_xml, tab_lines = st.tabs(["🔤 Spelling Changes", "📊 Full JSON Report", "🏛️ TEI-XML Markup Audit", "📏 Line Statistics"])
+
+    with tab_spelling:
+        oni_details = report["metrics"].get("oni_calculation_details", {})
+        if oni_details.get("method") == "token_level_normalisation_ratio":
+            st.write("**How the altered words were classified:**")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Rule-based normalisations", oni_details.get("orthographic_rule_based", 0))
+            c2.metric("Probable normalisations", oni_details.get("orthographic_probable", 0))
+            c3.metric("Other changes (errors)", oni_details.get("other_changes", 0))
+            c4.metric("Omitted / inserted words", f'{oni_details.get("omitted_tokens", 0)} / {oni_details.get("inserted_tokens", 0)}')
+            examples = oni_details.get("examples", [])
+            if examples:
+                st.write("**Examples (first 15 altered words):**")
+                st.table([{"Diplomatic": e["diplomatic"], "Datafied": e["datafied"], "Type": e["type"]} for e in examples])
+            st.caption("ONI = normalised words / all altered words. Classification is heuristic: "
+                       "rule-based = identical after historical folding (long s/f, u/v, i/j, y/i, thorn, ye/the, &/and, "
+                       "Roman numerals, doubled consonants, final -e, capitalisation); probable = differs only by vowels after folding.")
+        elif oni_details.get("method") == "convergence_ratio":
+            st.info("ONI calculated against the uploaded modernised reference (dual-reference method).")
+        else:
+            st.info("No spelling changes detected.")
 
     with tab_report:
         report_json_str = json.dumps(report, indent=2, ensure_ascii=False)

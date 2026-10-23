@@ -58,6 +58,33 @@ class TestOMNIAuditor(unittest.TestCase):
         self.assertGreaterEqual(oni_data["oni_score"], 0.0)
         self.assertLessEqual(oni_data["oni_score"], 1.0)
 
+    def test_oni_detects_full_modernisation(self):
+        # Fully modernised spelling must give a high ONI even without a modernised reference
+        auditor = OMNIAuditor(self.diplomatic, self.datafied)
+        oni_data = auditor.calculate_oni()
+        self.assertEqual(oni_data["method"], "token_level_normalisation_ratio")
+        self.assertGreaterEqual(oni_data["oni_score"], 0.9)
+        self.assertGreater(oni_data["orthographic_rule_based"], 0)
+
+    def test_oni_ignores_recognition_errors(self):
+        # Recognition errors that keep the historical spelling must not count as normalisation
+        htr = "In ye narne of Gud, Amen. Thif fcripture wrayten in ye yeare 1584."
+        oni_data = OMNIAuditor(self.diplomatic, htr).calculate_oni()
+        self.assertEqual(oni_data["oni_score"], 0.0)
+        self.assertEqual(oni_data["other_changes"], 2)
+
+    def test_oni_counts_omissions_separately(self):
+        truncated = "In the name of God, Amen."
+        oni_data = OMNIAuditor(self.diplomatic, truncated).calculate_oni()
+        self.assertEqual(oni_data["oni_score"], 1.0)
+        self.assertGreater(oni_data["omitted_tokens"], 0)
+
+    def test_raw_distance_is_unweighted(self):
+        self.assertEqual(WeightedEditDistance.compute("fcripture", "scripture", weighted=False), 1.0)
+        auditor = OMNIAuditor(self.diplomatic, self.datafied)
+        cer_data = auditor.calculate_cer_metrics()
+        self.assertGreater(cer_data["raw_edit_distance"], cer_data["weighted_edit_distance"])
+
     def test_oni_dual_reference(self):
         auditor = OMNIAuditor(self.diplomatic, self.datafied, self.modernized)
         oni_data = auditor.calculate_oni()

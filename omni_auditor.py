@@ -12,6 +12,7 @@ Text Recognition (HTR) and crowdsourced archival transcription pipelines.
 
 import os
 import re
+import difflib
 import json
 import logging
 import argparse
@@ -77,9 +78,11 @@ class WeightedEditDistance:
         return 1.0  # Standard substitution cost
 
     @classmethod
-    def compute(cls, s1: str, s2: str, case_sensitive: bool = False) -> float:
+    def compute(cls, s1: str, s2: str, case_sensitive: bool = False, weighted: bool = True) -> float:
         """
-        Computes memory-efficient $O(\\min(M,N))$ space iterative weighted edit distance.
+        Computes memory-efficient $O(\\min(M,N))$ space iterative edit distance.
+        weighted=True  -> historical variants and case differences receive reduced costs.
+        weighted=False -> standard (unweighted) Levenshtein distance: every edit costs 1.0.
         """
         if s1 == s2:
             return 0.0
@@ -99,12 +102,155 @@ class WeightedEditDistance:
             for j, c2 in enumerate(s2):
                 insertions = previous_row[j + 1] + 1.0
                 deletions = current_row[j] + 1.0
-                sub_cost = cls.get_substitution_cost(c1, c2, case_sensitive)
+                if weighted:
+                    sub_cost = cls.get_substitution_cost(c1, c2, case_sensitive)
+                else:
+                    sub_cost = 0.0 if c1 == c2 else 1.0
                 substitutions = previous_row[j] + sub_cost
                 current_row[j + 1] = min(insertions, deletions, substitutions)
             previous_row = current_row
 
         return previous_row[-1]
+
+
+class OrthographicClassifier:
+    """
+    Token-level classifier separating orthographic normalisation from other changes.
+
+    Each word of the diplomatic text is aligned with the datafied text. Changed words are
+    classified as:
+      * rule-based normalisation: the two forms become identical after historical folding
+        (long s / f, u/v, i/j, y/i, thorn, ligatures, abbreviations such as ye/the and &/and,
+        Roman numerals, doubled consonants, final silent -e, capitalisation);
+      * probable normalisation: after folding, one form equals the other plus or minus vowels
+        only (e.g. heyres -> heirs, wrayten -> written);
+      * other change: any other altered word (e.g. recognition or transcription errors).
+    Omitted and inserted words are counted separately, as content loss rather than spelling.
+
+    ONI = (rule-based + probable normalisations) / all altered words
+        (normalisations + other changes; omissions and insertions excluded).
+    The classification is heuristic and intended as a diagnostic signal, not a verdict.
+    """
+
+    LEXICAL_EQUIVALENCES = {
+        "ye": "the", "yᵉ": "the", "þe": "the", "yt": "that", "yᵗ": "that", "þt": "that",
+        "wt": "with", "wᵗ": "with", "&": "and", "⁊": "and",
+    }
+    CHAR_FOLDS = [
+        ("ſ", "s"), ("f", "s"), ("þ", "th"), ("ð", "th"), ("æ", "ae"), ("œ", "oe"),
+        ("v", "u"), ("j", "i"), ("y", "i"),
+    ]
+    ROMAN = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+    VOWELS = set("aeiou")
+    MAX_EXAMPLES = 15
+
+    @classmethod
+    def tokenize(cls, text: str) -> List[str]:
+        return re.findall(r"[\w'ſþðæœ]+|&|⁊", text, flags=re.UNICODE)
+
+    @classmethod
+    def roman_to_int(cls, token: str) -> Optional[int]:
+        t = token.lower()
+        if not t or any(c not in cls.ROMAN for c in t) or t == "i":
+            return None
+        total, prev = 0, 0
+        for c in reversed(t):
+            v = cls.ROMAN[c]
+            total = total - v if v < prev else total + v
+            prev = max(prev, v)
+        return total
+
+    @classmethod
+    def fold(cls, token: str) -> str:
+        """Maps a word to a canonical form in which historical spelling variants coincide."""
+        t = token.lower()
+        if t in cls.LEXICAL_EQUIVALENCES:
+            t = cls.LEXICAL_EQUIVALENCES[t]
+        if token.isupper() and len(token) <= 6:
+            n = cls.roman_to_int(token)
+            if n is not None:
+                return str(n)
+        for a, b in cls.CHAR_FOLDS:
+            t = t.replace(a, b)
+        t = re.sub(r"([b-df-hj-np-tv-z])\1+", r"\1", t)   # undouble consonants
+        if len(t) > 3 and t.endswith("e"):                # final silent -e
+            t = t[:-1]
+        return t
+
+    @classmethod
+    def differs_only_by_vowels(cls, a: str, b: str) -> bool:
+        """True if the shorter string is obtained from the longer by deleting vowels only."""
+        if a == b:
+            return False
+        longer, shorter = (a, b) if len(a) >= len(b) else (b, a)
+        it = iter(longer)
+        extra = []
+        for ch in shorter:
+            for c in it:
+                if c == ch:
+                    break
+                extra.append(c)
+            else:
+                return False
+        extra.extend(it)
+        return bool(extra) and all(c in cls.VOWELS for c in extra)
+
+    @classmethod
+    def classify(cls, diplomatic: str, datafied: str) -> Dict[str, Any]:
+        dip = cls.tokenize(diplomatic)
+        dat = cls.tokenize(datafied)
+        fdip = [cls.fold(t) for t in dip]
+        fdat = [cls.fold(t) for t in dat]
+
+        rule, probable, other, omitted, inserted = 0, 0, 0, 0, 0
+        examples: List[Dict[str, str]] = []
+
+        def note(kind: str, a: str, b: str):
+            if len(examples) < cls.MAX_EXAMPLES:
+                examples.append({"diplomatic": a, "datafied": b, "type": kind})
+
+        sm = difflib.SequenceMatcher(a=fdip, b=fdat, autojunk=False)
+        for op, i1, i2, j1, j2 in sm.get_opcodes():
+            if op == "equal":
+                for a, b in zip(dip[i1:i2], dat[j1:j2]):
+                    if a != b:
+                        rule += 1
+                        note("orthographic (rule-based)", a, b)
+            elif op == "replace":
+                pairs = list(zip(range(i1, i2), range(j1, j2)))
+                for i, j in pairs:
+                    if cls.differs_only_by_vowels(fdip[i], fdat[j]):
+                        probable += 1
+                        note("orthographic (probable)", dip[i], dat[j])
+                    else:
+                        other += 1
+                        note("other change", dip[i], dat[j])
+                omitted += (i2 - i1) - len(pairs)
+                inserted += (j2 - j1) - len(pairs)
+            elif op == "delete":
+                omitted += i2 - i1
+                for a in dip[i1:i2]:
+                    note("omission", a, "")
+            elif op == "insert":
+                inserted += j2 - j1
+                for b in dat[j1:j2]:
+                    note("insertion", "", b)
+
+        altered = rule + probable + other
+        oni = (rule + probable) / altered if altered else 0.0
+        return {
+            "oni_score": round(oni, 4),
+            "status": "self_calibrated_calculated",
+            "method": "token_level_normalisation_ratio",
+            "diplomatic_tokens": len(dip),
+            "altered_tokens": altered,
+            "orthographic_rule_based": rule,
+            "orthographic_probable": probable,
+            "other_changes": other,
+            "omitted_tokens": omitted,
+            "inserted_tokens": inserted,
+            "examples": examples,
+        }
 
 
 # ==============================================================================
@@ -160,8 +306,8 @@ class OMNIAuditor:
                 "datafied_length": len(self.datafied)
             }
 
-        raw_dist = WeightedEditDistance.compute(self.diplomatic, self.datafied, case_sensitive=True)
-        weighted_dist = WeightedEditDistance.compute(self.diplomatic, self.datafied, case_sensitive=False)
+        raw_dist = WeightedEditDistance.compute(self.diplomatic, self.datafied, case_sensitive=True, weighted=False)
+        weighted_dist = WeightedEditDistance.compute(self.diplomatic, self.datafied, case_sensitive=False, weighted=True)
         cer = raw_dist / max(len(self.diplomatic), 1)
 
         return {
@@ -185,8 +331,7 @@ class OMNIAuditor:
                 "method": "none"
             }
 
-        raw_dist = WeightedEditDistance.compute(self.diplomatic, self.datafied, case_sensitive=True)
-        weighted_dist = WeightedEditDistance.compute(self.diplomatic, self.datafied, case_sensitive=False)
+        raw_dist = WeightedEditDistance.compute(self.diplomatic, self.datafied, case_sensitive=True, weighted=False)
 
         if raw_dist == 0:
             return {
@@ -218,17 +363,10 @@ class OMNIAuditor:
                 "dist_diplomatic_to_modernized": round(dist_dip_mod, 2)
             }
 
-        # Method B: Self-Calibrated Orthographic Drift Ratio (Weighted vs Unweighted Distance)
-        # Difference between unweighted (case/glyph strict) and weighted (historical variant relaxed) distances
-        ortho_drift = max(0.0, raw_dist - weighted_dist)
-        oni_score = min(1.0, ortho_drift / max(raw_dist, 1.0))
-
-        return {
-            "oni_score": round(oni_score, 4),
-            "status": "self_calibrated_calculated",
-            "method": "orthographic_variance_ratio",
-            "orthographic_drift_delta": round(ortho_drift, 2)
-        }
+        # Method B: Self-calibrated, token-level Orthographic Normalisation Ratio.
+        # Every changed word is classified as an orthographic normalisation
+        # (rule-based or probable) or as another change (recognition error, omission, insertion).
+        return OrthographicClassifier.classify(self.diplomatic, self.datafied)
 
     def audit_tei_xml(self, tei_file_path: str) -> Dict[str, Any]:
         """
@@ -338,7 +476,7 @@ class OMNIAuditor:
             line_dip = TextNormalizer.collapse_whitespace(dip_lines[i])
             line_dat = TextNormalizer.collapse_whitespace(dat_lines[i])
             if line_dip:
-                dist = WeightedEditDistance.compute(line_dip, line_dat, case_sensitive=True)
+                dist = WeightedEditDistance.compute(line_dip, line_dat, case_sensitive=True, weighted=False)
                 cer = dist / len(line_dip)
                 line_cers.append(cer)
 
