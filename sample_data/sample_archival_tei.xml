@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader>
+    <fileDesc>
+      <titleStmt>
+        <title>Archival Sample Charter (1584) - OMNI-Audit Test Document</title>
+      </titleStmt>
+      <publicationStmt>
+        <p>Digitized for OMNI-Audit Protocol Validation</p>
+      </publicationStmt>
+      <sourceDesc>
+        <p>Original Manuscript Record</p>
+      </sourceDesc>
+    </fileDesc>
+  </teiHeader>
+  <text>
+    <body>
+      <pb n="1r" facs="manuscript_p1r.jpg"/>
+      <p>
+        In <choice><abbr>ye</abbr><expan>the</expan></choice> name of God, Amen.
+        <add place="margin">Note: Witnessed by Thomas Smith, Bailiff</add>
+        Thif fcripture wrayten in ye yeare of oure Lorde 1584
+        <del rend="strikethrough">and confirmed by the court</del>
+        witneffeth that John de la Croft &amp; hif heyres shall paye V shillingf yearely.
+        <add place="above">Paid in full on Michaelmas</add>
+      </p>
+    </body>
+  </text>
+</TEI>
